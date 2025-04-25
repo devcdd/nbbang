@@ -15,6 +15,7 @@ import HomeScreen from './src/screens/HomeScreen';
 import MemberScreen from './src/screens/MemberScreen';
 import SettlementScreen from './src/screens/SettlementScreen';
 import {useMemberStore} from './src/store/memberStore';
+import {ToastProvider} from './src/contexts/ToastContext';
 
 export type RootStackParamList = {
   Home: undefined;
@@ -34,20 +35,22 @@ function App(): React.JSX.Element {
   }, [loadMembers]);
 
   return (
-    <GestureHandlerRootView style={styles.container}>
-      <SafeAreaProvider>
-        <NavigationContainer>
-          <Stack.Navigator
-            screenOptions={{
-              headerShown: false,
-            }}>
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="Member" component={MemberScreen} />
-            <Stack.Screen name="Settlement" component={SettlementScreen} />
-          </Stack.Navigator>
-        </NavigationContainer>
-      </SafeAreaProvider>
-    </GestureHandlerRootView>
+    <ToastProvider>
+      <GestureHandlerRootView style={styles.container}>
+        <SafeAreaProvider>
+          <NavigationContainer>
+            <Stack.Navigator
+              screenOptions={{
+                headerShown: false,
+              }}>
+              <Stack.Screen name="Home" component={HomeScreen} />
+              <Stack.Screen name="Member" component={MemberScreen} />
+              <Stack.Screen name="Settlement" component={SettlementScreen} />
+            </Stack.Navigator>
+          </NavigationContainer>
+        </SafeAreaProvider>
+      </GestureHandlerRootView>
+    </ToastProvider>
   );
 }
 

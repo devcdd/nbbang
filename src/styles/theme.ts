@@ -1,12 +1,16 @@
+import {COLORS} from '../constants/colors';
+
 export const colors = {
-  primary: '#F5C91B',
-  background: `linear-gradient(180deg, rgba(245, 201, 27, 0.1) 0%, rgba(245, 201, 27, 0) 100%)`,
-  white: '#FFFFFF',
-  black: '#000000',
+  primary: COLORS.YELLOW.PRIMARY,
+  background: `linear-gradient(180deg, ${COLORS.YELLOW.GRADIENT_START} 0%, ${COLORS.YELLOW.GRADIENT_END} 100%)`,
+  white: COLORS.WHITE,
+  black: COLORS.BLACK,
   text: {
-    primary: '#000000',
-    secondary: '#666666',
+    primary: COLORS.TEXT.PRIMARY,
+    secondary: COLORS.TEXT.SECONDARY,
   },
+  error: COLORS.RED.ERROR,
+  gray: COLORS.GRAY,
 } as const;
 
 export const spacing = {
@@ -27,7 +31,8 @@ export const borderRadius = {
 export const typography = {
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: 'bold' as const,
+    color: colors.text.primary,
   },
   subtitle: {
     fontSize: 14,
@@ -35,7 +40,27 @@ export const typography = {
   },
   button: {
     fontSize: 16,
-    fontWeight: '600',
+    fontWeight: '600' as const,
+  },
+  text: {
+    small: {
+      fontSize: 12,
+    },
+    regular: {
+      fontSize: 14,
+    },
+    medium: {
+      fontSize: 16,
+    },
+    large: {
+      fontSize: 18,
+    },
+    xlarge: {
+      fontSize: 20,
+    },
+    xxlarge: {
+      fontSize: 24,
+    },
   },
 } as const;
 

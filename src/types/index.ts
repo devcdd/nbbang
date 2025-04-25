@@ -3,9 +3,9 @@ export type Member = string;
 export interface Settlement {
   id: string;
   title: string;
-  description?: string;
-  members: Member[];
+  members: string[];
   amount: number;
+  memberAmounts?: {[key: string]: number};
 }
 
 export interface SettlementGroup {

@@ -9,6 +9,7 @@ import {
   ScrollView,
   Alert,
   Platform,
+  LayoutChangeEvent,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -18,6 +19,7 @@ import {Settlement} from '../types';
 import {useMemberStore} from '../store/memberStore';
 import ViewShot from 'react-native-view-shot';
 import Share from 'react-native-share';
+import {useToast} from '../contexts/ToastContext';
 
 interface SettlementItemProps {
   settlement: Settlement;
@@ -25,10 +27,17 @@ interface SettlementItemProps {
   onSelectMembers: (id: string) => void;
   onUpdateAmount: (id: string, amount: string) => void;
   onDelete: (id: string) => void;
+  onFocus: () => void;
+  onRandomize: (id: string, memberAmounts: {[key: string]: number}) => void;
 }
 
 const formatAmount = (amount: number): string => {
   return amount.toLocaleString('ko-KR') + '원';
+};
+
+const formatNumberWithCommas = (num: string | number) => {
+  const numStr = typeof num === 'string' ? num : num.toString();
+  return numStr.replace(/\B(?=(\d{3})+(?!\d))/g, ',');
 };
 
 const SettlementItem: React.FC<SettlementItemProps> = ({
@@ -37,10 +46,42 @@ const SettlementItem: React.FC<SettlementItemProps> = ({
   onSelectMembers,
   onUpdateAmount,
   onDelete,
+  onFocus,
+  onRandomize,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
+  const [isAmountEditing, setIsAmountEditing] = useState(false);
   const [title, setTitle] = useState(settlement.title);
+  const [amount, setAmount] = useState(
+    settlement.amount === 0 ? '' : settlement.amount.toString(),
+  );
   const inputRef = useRef<TextInput>(null);
+  const amountInputRef = useRef<TextInput>(null);
+
+  const handleStartEditing = () => {
+    setIsEditing(true);
+    onFocus();
+  };
+
+  const handleStartAmountEditing = () => {
+    setIsAmountEditing(true);
+    if (settlement.amount === 0) {
+      setAmount('');
+    }
+    onFocus();
+  };
+
+  const handleAmountChange = (text: string) => {
+    const numericValue = text.replace(/[^0-9]/g, '');
+    setAmount(numericValue);
+    const parsedAmount = numericValue === '' ? 0 : parseInt(numericValue, 10);
+    onUpdateAmount(settlement.id, parsedAmount.toString());
+    onRandomize(settlement.id, {});
+  };
+
+  const handleAmountSubmit = () => {
+    setIsAmountEditing(false);
+  };
 
   const handleSubmitTitle = () => {
     onUpdateTitle(settlement.id, title);
@@ -66,45 +107,110 @@ const SettlementItem: React.FC<SettlementItemProps> = ({
       ? Math.ceil(settlement.amount / settlement.members.length)
       : 0;
 
+  const handleRandomizeAmounts = () => {
+    if (settlement.amount === 0 || settlement.members.length === 0) return;
+
+    const totalAmount = settlement.amount;
+    const memberCount = settlement.members.length;
+    let remainingAmount = totalAmount;
+    const newMemberAmounts: {[key: string]: number} = {};
+
+    settlement.members.slice(0, -1).forEach(member => {
+      const averagePerPerson =
+        remainingAmount / (memberCount - Object.keys(newMemberAmounts).length);
+      const minAmount = Math.floor(averagePerPerson * 0.3);
+      const maxAmount = Math.floor(averagePerPerson * 1.7);
+      const randomAmount =
+        Math.floor(Math.random() * (maxAmount - minAmount + 1)) + minAmount;
+
+      newMemberAmounts[member] = randomAmount;
+      remainingAmount -= randomAmount;
+    });
+
+    const lastMember = settlement.members[settlement.members.length - 1];
+    newMemberAmounts[lastMember] = remainingAmount;
+
+    onRandomize(settlement.id, newMemberAmounts);
+  };
+
+  const handleResetAmounts = () => {
+    onRandomize(settlement.id, {});
+  };
+
   return (
     <View style={styles.settlementItem}>
       <View style={styles.settlementHeader}>
-        <View style={styles.titleContainer}>
-          {isEditing ? (
-            <TextInput
-              ref={inputRef}
-              style={styles.titleInput}
-              value={title}
-              onChangeText={setTitle}
-              onBlur={handleSubmitTitle}
-              onSubmitEditing={handleSubmitTitle}
-              autoFocus
-            />
-          ) : (
-            <TouchableOpacity onPress={() => setIsEditing(true)}>
-              <Text style={styles.settlementTitle}>{settlement.title}</Text>
-            </TouchableOpacity>
-          )}
-          <TouchableOpacity onPress={() => setIsEditing(!isEditing)}>
-            <Icon
-              name={isEditing ? 'check' : 'edit'}
-              size={20}
-              color={theme.colors.primary}
-            />
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity
+          style={styles.titleSection}
+          onPress={handleStartEditing}
+          activeOpacity={0.7}>
+          <View style={styles.titleContainer}>
+            {isEditing ? (
+              <TextInput
+                ref={inputRef}
+                style={styles.titleInput}
+                value={title}
+                onChangeText={setTitle}
+                onBlur={handleSubmitTitle}
+                onSubmitEditing={handleSubmitTitle}
+                autoFocus
+                placeholder="제목 입력"
+                placeholderTextColor="#999"
+              />
+            ) : (
+              <View style={styles.titleWrapper}>
+                <Text style={styles.settlementTitle}>{settlement.title}</Text>
+                <Icon
+                  name="edit"
+                  size={16}
+                  color={theme.colors.text.secondary}
+                  style={styles.editIcon}
+                />
+              </View>
+            )}
+          </View>
+        </TouchableOpacity>
         <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
           <Icon name="delete" size={20} color="#FF6B6B" />
         </TouchableOpacity>
       </View>
       <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.amountInput}
-          placeholder="금액 입력"
-          keyboardType="numeric"
-          value={settlement.amount > 0 ? settlement.amount.toString() : ''}
-          onChangeText={text => onUpdateAmount(settlement.id, text)}
-        />
+        <TouchableOpacity
+          style={styles.amountContainer}
+          onPress={handleStartAmountEditing}
+          activeOpacity={0.7}>
+          {isAmountEditing ? (
+            <View style={styles.amountInputContainer}>
+              <TextInput
+                ref={amountInputRef}
+                style={styles.amountInput}
+                value={amount === '' ? '' : formatNumberWithCommas(amount)}
+                onChangeText={handleAmountChange}
+                onBlur={handleAmountSubmit}
+                onSubmitEditing={handleAmountSubmit}
+                keyboardType="numeric"
+                autoFocus
+                placeholder="금액 입력"
+                placeholderTextColor="#999"
+              />
+              <Text style={styles.amountUnit}>원</Text>
+            </View>
+          ) : (
+            <View style={styles.amountWrapper}>
+              <Text style={styles.amountText}>
+                {settlement.amount > 0
+                  ? `${formatNumberWithCommas(settlement.amount)}원`
+                  : '금액 입력'}
+              </Text>
+              <Icon
+                name="edit"
+                size={16}
+                color="#4CAF50"
+                style={styles.editIcon}
+              />
+            </View>
+          )}
+        </TouchableOpacity>
         <TouchableOpacity
           style={styles.memberSelector}
           onPress={() => onSelectMembers(settlement.id)}>
@@ -119,12 +225,30 @@ const SettlementItem: React.FC<SettlementItemProps> = ({
           />
         </TouchableOpacity>
         {settlement.amount > 0 && settlement.members.length > 0 && (
-          <View style={styles.perPersonContainer}>
-            <Text style={styles.perPersonLabel}>1인당 금액</Text>
-            <Text style={styles.perPersonAmount}>
-              {formatAmount(perPersonAmount)}
-            </Text>
-          </View>
+          <>
+            <View style={styles.perPersonContainer}>
+              <Text style={styles.perPersonLabel}>1인당 금액</Text>
+              <Text style={styles.perPersonAmount}>
+                {formatAmount(perPersonAmount)}
+              </Text>
+            </View>
+            <View
+              style={[
+                styles.memberDetailsContainer,
+                {marginTop: theme.spacing.xs},
+              ]}>
+              {settlement.members.map(member => (
+                <View key={member} style={styles.memberDetailItem}>
+                  <Text style={styles.memberDetailName}>{member}</Text>
+                  <Text style={styles.memberDetailAmount}>
+                    {formatAmount(
+                      settlement.memberAmounts?.[member] || perPersonAmount,
+                    )}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </>
         )}
         {settlement.members.length > 0 && (
           <View style={styles.memberNames}>
@@ -132,6 +256,22 @@ const SettlementItem: React.FC<SettlementItemProps> = ({
             <Text style={styles.memberNamesList}>
               {settlement.members.join(', ')}
             </Text>
+            <View style={styles.amountControlButtons}>
+              <TouchableOpacity
+                onPress={handleRandomizeAmounts}
+                style={styles.randomizeButton}>
+                <Icon name="casino" size={18} color={theme.colors.primary} />
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleResetAmounts}
+                style={styles.randomizeButton}>
+                <Icon
+                  name="refresh"
+                  size={18}
+                  color={theme.colors.text.secondary}
+                />
+              </TouchableOpacity>
+            </View>
           </View>
         )}
       </View>
@@ -147,29 +287,84 @@ interface SettlementSummaryProps {
 const SettlementSummary: React.FC<SettlementSummaryProps> = ({
   settlements,
   totalAmount,
-}) => (
-  <View style={styles.summaryContainer}>
-    <Text style={styles.summaryTitle}>정산 내역 요약</Text>
-    {settlements.map(item => (
-      <View key={item.id} style={styles.summaryItem}>
-        <Text style={styles.summaryItemTitle}>{item.title}</Text>
-        <Text style={styles.summaryItemAmount}>
-          {formatAmount(item.amount)}
-        </Text>
-        <Text style={styles.summaryItemMembers}>
-          참여자 ({item.members.length}명): {item.members.join(', ')}
-        </Text>
-        <Text style={styles.summaryItemPerPerson}>
-          1인당: {formatAmount(Math.ceil(item.amount / item.members.length))}
+}) => {
+  const members = useMemberStore(state => state.members);
+
+  // 각 멤버별 총액 계산
+  const memberTotalAmounts = members.reduce((acc, member) => {
+    const total = settlements.reduce((sum, settlement) => {
+      if (settlement.members.includes(member)) {
+        // 랜덤 분배된 금액이 있으면 그 금액을, 없으면 균등 분배 금액을 사용
+        const amount =
+          settlement.memberAmounts?.[member] ||
+          Math.ceil(settlement.amount / settlement.members.length);
+        return sum + amount;
+      }
+      return sum;
+    }, 0);
+    return {...acc, [member]: total};
+  }, {} as {[key: string]: number});
+
+  return (
+    <View style={styles.summaryContainer}>
+      <Text style={styles.summaryTitle}>정산 내역 요약</Text>
+
+      <View style={styles.settlementDetails}>
+        <Text style={styles.sectionTitle}>상세 내역</Text>
+        {settlements.map(item => (
+          <View key={item.id} style={styles.settlementDetailItem}>
+            <View style={styles.settlementDetailHeader}>
+              <Text style={styles.detailTitle}>{item.title}</Text>
+              <Text style={styles.detailAmount}>
+                {item.amount.toLocaleString()}원
+              </Text>
+            </View>
+            <Text style={styles.detailMembers}>
+              참여자: {item.members.join(', ')}
+            </Text>
+            <View style={styles.detailMemberAmounts}>
+              {item.members.map(member => (
+                <View key={member} style={styles.detailMemberRow}>
+                  <Text style={styles.detailMemberName}>{member}</Text>
+                  <Text style={styles.detailMemberAmount}>
+                    {(
+                      item.memberAmounts?.[member] ||
+                      Math.ceil(item.amount / item.members.length)
+                    ).toLocaleString()}
+                    원
+                  </Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        ))}
+      </View>
+
+      <View style={styles.divider} />
+
+      <View style={styles.summaryContent}>
+        <Text style={styles.totalAmountLabel}>총 금액</Text>
+        <Text style={styles.totalAmountValue}>
+          {totalAmount.toLocaleString()}원
         </Text>
       </View>
-    ))}
-    <View style={styles.summaryTotal}>
-      <Text style={styles.summaryTotalLabel}>총 금액</Text>
-      <Text style={styles.summaryTotalAmount}>{formatAmount(totalAmount)}</Text>
+
+      <View style={styles.divider} />
+
+      <View style={styles.memberAmounts}>
+        <Text style={styles.memberAmountsTitle}>인원별 정산 금액</Text>
+        {members.map(member => (
+          <View key={member} style={styles.memberAmountRow}>
+            <Text style={styles.memberNameText}>{member}</Text>
+            <Text style={styles.memberAmountText}>
+              {memberTotalAmounts[member].toLocaleString()}원
+            </Text>
+          </View>
+        ))}
+      </View>
     </View>
-  </View>
-);
+  );
+};
 
 export const SettlementScreen = () => {
   const members = useMemberStore(state => state.members);
@@ -192,6 +387,11 @@ export const SettlementScreen = () => {
   const [showMemberModal, setShowMemberModal] = useState(false);
   const [currentSettlementId, setCurrentSettlementId] = useState<string>('');
   const viewShotRef = useRef<ViewShot | null>(null);
+  const [isLayoutReady, setIsLayoutReady] = useState(false);
+  const scrollViewRef = useRef<ScrollView>(null);
+  const itemRefs = useRef<{[key: string]: number}>({});
+  const {showToast} = useToast();
+  const [isAddSectionCollapsed, setIsAddSectionCollapsed] = useState(false);
 
   React.useEffect(() => {
     setSettlements(prev =>
@@ -256,12 +456,18 @@ export const SettlementScreen = () => {
 
   const handleDeleteSettlement = (id: string) => {
     setSettlements(prev => prev.filter(item => item.id !== id));
+    showToast('정산 내역이 삭제되었습니다.', 'success');
   };
 
   const handleShare = async () => {
     try {
       const viewShot = viewShotRef.current;
-      if (!viewShot?.capture) return;
+      if (!viewShot?.capture || !isLayoutReady) {
+        Alert.alert('오류', '공유 준비 중입니다. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 100));
 
       const uri = await viewShot.capture();
 
@@ -279,40 +485,120 @@ export const SettlementScreen = () => {
     }
   };
 
+  const handleItemFocus = (id: string) => {
+    const yOffset = itemRefs.current[id] || 0;
+    scrollViewRef.current?.scrollTo({y: yOffset, animated: true});
+  };
+
+  const handleItemLayout = (id: string, event: LayoutChangeEvent) => {
+    const {y} = event.nativeEvent.layout;
+    itemRefs.current[id] = y;
+  };
+
+  const handleRandomizeAmounts = (
+    id: string,
+    memberAmounts: {[key: string]: number},
+  ) => {
+    setSettlements(prev =>
+      prev.map(item => (item.id === id ? {...item, memberAmounts} : item)),
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <LinearGradient
-        colors={['rgba(245, 201, 27, 0.1)', 'rgba(245, 201, 27, 0)']}
+        colors={[theme.colors.white, theme.colors.white]}
         style={styles.gradient}>
         <View style={styles.content}>
           <View style={styles.header}>
-            <Text style={styles.title}>정산 금액 입력</Text>
-            <Text style={styles.subtitle}>각 차수별 금액을 입력하세요</Text>
+            <View style={styles.titleContainer}>
+              <Icon
+                name="calculate"
+                size={24}
+                color={theme.colors.primary}
+                style={styles.headerIcon}
+              />
+              <View>
+                <Text style={styles.title}>정산 금액 입력</Text>
+                <Text style={styles.subtitle}>각 차수별 금액을 입력하세요</Text>
+              </View>
+            </View>
           </View>
 
-          <ScrollView style={styles.settlementList}>
+          <ScrollView
+            ref={scrollViewRef}
+            style={styles.settlementList}
+            keyboardShouldPersistTaps="handled">
             {settlements.map(item => (
-              <SettlementItem
+              <View
                 key={item.id}
-                settlement={item}
-                onUpdateTitle={handleUpdateTitle}
-                onSelectMembers={handleSelectMembers}
-                onUpdateAmount={handleUpdateAmount}
-                onDelete={handleDeleteSettlement}
-              />
+                onLayout={event => handleItemLayout(item.id, event)}>
+                <SettlementItem
+                  settlement={item}
+                  onUpdateTitle={handleUpdateTitle}
+                  onSelectMembers={handleSelectMembers}
+                  onUpdateAmount={handleUpdateAmount}
+                  onDelete={handleDeleteSettlement}
+                  onFocus={() => handleItemFocus(item.id)}
+                  onRandomize={handleRandomizeAmounts}
+                />
+              </View>
             ))}
           </ScrollView>
 
           <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleAddSettlement}>
-            <Text style={styles.addButtonText}>+ 차수 추가하기</Text>
+            style={[
+              styles.addButton,
+              isAddSectionCollapsed && styles.addButtonCollapsed,
+            ]}
+            onPress={() => setIsAddSectionCollapsed(!isAddSectionCollapsed)}>
+            <View style={styles.addButtonContent}>
+              <Text style={styles.addButtonText}>정산 결과보기</Text>
+              <Icon
+                name={isAddSectionCollapsed ? 'expand-less' : 'expand-more'}
+                size={24}
+                color={theme.colors.primary}
+              />
+            </View>
           </TouchableOpacity>
 
-          <View style={styles.totalContainer}>
-            <Text style={styles.totalLabel}>총 금액</Text>
-            <Text style={styles.totalAmount}>{formatAmount(totalAmount)}</Text>
-          </View>
+          {!isAddSectionCollapsed && (
+            <>
+              <TouchableOpacity
+                style={styles.addSettlementButton}
+                onPress={handleAddSettlement}>
+                <Text style={styles.addSettlementButtonText}>
+                  + 새로운 차수 추가
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.totalContainer}>
+                <Text style={styles.totalLabel}>총 금액</Text>
+                <Text style={styles.totalAmount}>
+                  {formatAmount(totalAmount)}
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.nextButton,
+                  {
+                    backgroundColor:
+                      totalAmount > 0 ? theme.colors.primary : '#E0E0E0',
+                  },
+                ]}
+                disabled={totalAmount === 0}
+                onPress={handleShare}>
+                <Text
+                  style={[
+                    styles.nextButtonText,
+                    {color: totalAmount > 0 ? theme.colors.white : '#666666'},
+                  ]}>
+                  공유하기
+                </Text>
+              </TouchableOpacity>
+            </>
+          )}
 
           <Modal
             visible={showMemberModal}
@@ -376,34 +662,18 @@ export const SettlementScreen = () => {
             options={{
               format: 'png',
               quality: 1.0,
+              result: 'tmpfile',
             }}
             style={styles.hidden}>
-            <View style={styles.captureContainer}>
+            <View
+              style={styles.captureContainer}
+              onLayout={() => setIsLayoutReady(true)}>
               <SettlementSummary
                 settlements={settlements}
                 totalAmount={totalAmount}
               />
             </View>
           </ViewShot>
-
-          <TouchableOpacity
-            style={[
-              styles.nextButton,
-              {
-                backgroundColor:
-                  totalAmount > 0 ? theme.colors.primary : '#E0E0E0',
-              },
-            ]}
-            disabled={totalAmount === 0}
-            onPress={handleShare}>
-            <Text
-              style={[
-                styles.nextButtonText,
-                {color: totalAmount > 0 ? theme.colors.white : '#666666'},
-              ]}>
-              공유하기
-            </Text>
-          </TouchableOpacity>
         </View>
       </LinearGradient>
     </SafeAreaView>
@@ -417,6 +687,7 @@ const styles = StyleSheet.create({
   },
   gradient: {
     flex: 1,
+    backgroundColor: theme.colors.white,
   },
   content: {
     flex: 1,
@@ -426,12 +697,25 @@ const styles = StyleSheet.create({
     marginBottom: theme.spacing.xl,
     paddingHorizontal: theme.spacing.lg,
   },
+  titleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  headerIcon: {
+    backgroundColor: 'rgba(245, 201, 27, 0.1)',
+    padding: theme.spacing.sm,
+    borderRadius: 999,
+  },
   title: {
-    ...theme.typography.title,
+    fontSize: 22,
+    fontWeight: '700',
+    color: theme.colors.text.primary,
     marginBottom: theme.spacing.xs,
   },
   subtitle: {
-    ...theme.typography.subtitle,
+    fontSize: 14,
+    color: theme.colors.text.secondary,
   },
   settlementList: {
     flex: 1,
@@ -450,12 +734,18 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: theme.spacing.md,
+    paddingBottom: theme.spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.06)',
   },
-  titleContainer: {
+  titleSection: {
     flex: 1,
+    marginRight: theme.spacing.md,
+  },
+  titleWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: theme.spacing.sm,
+    gap: theme.spacing.xs,
   },
   settlementTitle: {
     fontSize: 18,
@@ -467,18 +757,52 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: theme.colors.text.primary,
-    padding: 0,
+    padding: theme.spacing.xs,
+    borderRadius: theme.borderRadius.sm,
+    marginRight: theme.spacing.sm,
+  },
+  editIcon: {
+    opacity: 0.5,
   },
   inputContainer: {
     gap: theme.spacing.sm,
   },
-  amountInput: {
-    height: 44,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
+  amountContainer: {
     borderRadius: theme.borderRadius.sm,
+    height: 44,
+    justifyContent: 'center',
+    backgroundColor: 'rgba(76, 175, 80, 0.1)',
+  },
+  amountWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
     paddingHorizontal: theme.spacing.md,
+    gap: theme.spacing.xs,
+  },
+  amountText: {
+    flex: 1,
     fontSize: 16,
+    color: '#4CAF50',
+    fontWeight: '600',
+  },
+  amountInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: theme.spacing.md,
+  },
+  amountInput: {
+    flex: 1,
+    height: 44,
+    fontSize: 16,
+    color: '#4CAF50',
+    fontWeight: '600',
+    padding: 0,
+  },
+  amountUnit: {
+    fontSize: 16,
+    color: '#4CAF50',
+    fontWeight: '600',
+    marginLeft: theme.spacing.xs,
   },
   memberSelector: {
     flexDirection: 'row',
@@ -497,9 +821,41 @@ const styles = StyleSheet.create({
   addButton: {
     paddingVertical: theme.spacing.md,
     alignItems: 'center',
-    paddingHorizontal: theme.spacing.lg,
+    paddingHorizontal: theme.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: '#E0E0E0',
+    backgroundColor: theme.colors.white,
+    shadowColor: theme.colors.black,
+    shadowOffset: {
+      width: 0,
+      height: -2,
+    },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 3,
+  },
+  addButtonCollapsed: {
+    borderBottomWidth: 1,
+    borderBottomColor: '#E0E0E0',
+  },
+  addButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
   },
   addButtonText: {
+    color: theme.colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  addSettlementButton: {
+    backgroundColor: 'rgba(245, 201, 27, 0.1)',
+    paddingVertical: theme.spacing.md,
+    alignItems: 'center',
+    marginTop: 1,
+  },
+  addSettlementButtonText: {
     color: theme.colors.primary,
     fontSize: 16,
     fontWeight: '600',
@@ -509,10 +865,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     backgroundColor: '#F5F5F5',
-    padding: theme.spacing.lg,
+    padding: theme.spacing.md,
     borderRadius: theme.borderRadius.lg,
-    marginVertical: theme.spacing.lg,
-    marginHorizontal: theme.spacing.lg,
+    marginVertical: theme.spacing.md,
   },
   totalLabel: {
     fontSize: 16,
@@ -528,8 +883,7 @@ const styles = StyleSheet.create({
     padding: theme.spacing.md,
     borderRadius: theme.borderRadius.sm,
     alignItems: 'center',
-    marginHorizontal: theme.spacing.lg,
-    marginBottom: theme.spacing.lg,
+    marginBottom: theme.spacing.md,
   },
   nextButtonText: {
     fontSize: 16,
@@ -569,7 +923,7 @@ const styles = StyleSheet.create({
   },
   memberName: {
     fontSize: 16,
-    color: theme.colors.text.primary,
+    color: '#4A4A4A',
   },
   confirmButton: {
     backgroundColor: theme.colors.primary,
@@ -601,10 +955,31 @@ const styles = StyleSheet.create({
     color: theme.colors.primary,
     fontWeight: '600',
   },
+  memberDetailsContainer: {
+    backgroundColor: '#F8F8F8',
+    borderRadius: theme.borderRadius.sm,
+    padding: theme.spacing.sm,
+  },
+  memberDetailItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: theme.spacing.xs,
+  },
+  memberDetailName: {
+    fontSize: 14,
+    color: theme.colors.text.primary,
+  },
+  memberDetailAmount: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: '500',
+  },
   memberNames: {
     flexDirection: 'row',
     marginTop: theme.spacing.xs,
     flexWrap: 'wrap',
+    alignItems: 'center',
   },
   memberNamesLabel: {
     fontSize: 14,
@@ -624,71 +999,135 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: -9999,
     backgroundColor: theme.colors.white,
+    width: '100%',
   },
   captureContainer: {
-    width: 400,
+    width: '100%',
     minHeight: 200,
     backgroundColor: theme.colors.white,
     padding: theme.spacing.lg,
+    elevation: 0,
   },
   summaryContainer: {
     backgroundColor: theme.colors.white,
-    borderRadius: theme.borderRadius.lg,
     padding: theme.spacing.lg,
+    borderRadius: theme.borderRadius.md,
+    gap: theme.spacing.md,
+    width: '100%',
   },
   summaryTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.lg,
+    color: '#1A1A1A',
     textAlign: 'center',
-  },
-  summaryItem: {
     marginBottom: theme.spacing.md,
-    padding: theme.spacing.md,
-    backgroundColor: '#F5F5F5',
-    borderRadius: theme.borderRadius.sm,
   },
-  summaryItemTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: theme.colors.text.primary,
-    marginBottom: theme.spacing.xs,
+  settlementDetails: {
+    gap: theme.spacing.sm,
+    width: '100%',
   },
-  summaryItemAmount: {
+  sectionTitle: {
     fontSize: 16,
-    color: theme.colors.primary,
     fontWeight: '600',
+    color: '#1A1A1A',
     marginBottom: theme.spacing.xs,
   },
-  summaryItemMembers: {
-    fontSize: 14,
-    color: theme.colors.text.secondary,
-    marginBottom: theme.spacing.xs,
+  settlementDetailItem: {
+    backgroundColor: '#F8F8F8',
+    padding: theme.spacing.md,
+    borderRadius: theme.borderRadius.sm,
+    gap: theme.spacing.xs,
+    width: '100%',
   },
-  summaryItemPerPerson: {
-    fontSize: 14,
-    color: theme.colors.text.primary,
-    fontWeight: '500',
-  },
-  summaryTotal: {
-    marginTop: theme.spacing.lg,
+  settlementDetailHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingTop: theme.spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: '#E0E0E0',
   },
-  summaryTotalLabel: {
-    fontSize: 18,
+  detailTitle: {
+    fontSize: 16,
+    fontWeight: '500',
+    color: '#1A1A1A',
+  },
+  detailAmount: {
+    fontSize: 16,
     fontWeight: '600',
-    color: theme.colors.text.primary,
+    color: theme.colors.primary,
   },
-  summaryTotalAmount: {
+  detailMembers: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  summaryContent: {
+    alignItems: 'center',
+    gap: theme.spacing.sm,
+  },
+  totalAmountLabel: {
+    fontSize: 16,
+    color: '#666666',
+  },
+  totalAmountValue: {
     fontSize: 24,
     fontWeight: 'bold',
     color: theme.colors.primary,
+  },
+  divider: {
+    height: 1,
+    backgroundColor: '#E0E0E0',
+    marginVertical: theme.spacing.sm,
+  },
+  memberAmounts: {
+    gap: theme.spacing.sm,
+  },
+  memberAmountsTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#1A1A1A',
+    marginBottom: theme.spacing.xs,
+  },
+  memberAmountRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  memberNameText: {
+    fontSize: 16,
+    color: '#4A4A4A',
+  },
+  memberAmountText: {
+    fontSize: 16,
+    color: '#1A1A1A',
+    fontWeight: '500',
+  },
+  detailMemberAmounts: {
+    marginTop: theme.spacing.xs,
+    paddingTop: theme.spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    gap: theme.spacing.xs,
+  },
+  detailMemberRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  detailMemberName: {
+    fontSize: 14,
+    color: '#666666',
+  },
+  detailMemberAmount: {
+    fontSize: 14,
+    color: theme.colors.primary,
+    fontWeight: '500',
+  },
+  amountControlButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: theme.spacing.xs,
+    marginLeft: 'auto',
+  },
+  randomizeButton: {
+    padding: theme.spacing.xs,
   },
 });
 
